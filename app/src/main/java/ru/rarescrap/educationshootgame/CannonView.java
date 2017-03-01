@@ -279,7 +279,7 @@ public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
     // Отображение окна AlertDialog при завершении игры
     private void showGameOverDialog(final int messageId) {
         // Объект DialogFragment для вывода статистики и начала новой игры
-        final DialogFragment gameResult = new DialogFragment() {
+        final DialogFragment gameResult = new DialogFragment() { // TODO: Исправить на статик и разобраться
             // Метод создает объект AlertDialog и возвращает его
             @Override
             public Dialog onCreateDialog(Bundle bundle) {
