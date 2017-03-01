@@ -24,7 +24,7 @@ public class MainActivityFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_main, container, false);
 
         // Получение ссылки на CannonView
-        cannonView = (CannonView) view.findViewById(R.id.cannonView);
+        cannonView = (CannonView) view.findViewById(R.id.СannonView);
         return view;
     }
 

@@ -237,7 +237,7 @@ public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
 
         // Если счетчик достиг нуля
         if (timeLeft <= 0) {
-            timeLeft = 0.0;
+            timeLeft = 0.0; // если этого не сделать, на экране может отобразиться отрицательное значение времени
             gameOver = true; // Игра закончена
             cannonThread.setRunning(false); // Завершение потока
             showGameOverDialog(R.string.lose); // Сообщение о проигрыше
@@ -249,5 +249,269 @@ public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
             showGameOverDialog(R.string.win); // Сообщение о выигрыше
             gameOver = true;
         }
+    }
+
+    // Метод определяет угол наклона ствола и стреляет из пушки,
+    // если ядро не находится на экране
+    public void alignAndFireCannonball(MotionEvent event) {
+        // Получение точки касания в этом представлении
+        Point touchPoint = new Point((int) event.getX(), (int) event.getY());
+
+        // Вычисление расстояния точки касания от центра экрана
+        // по оси y
+        double centerMinusY = (screenHeight / 2 - touchPoint.y); // TODO: Как это блять работает?
+
+        double angle = 0; // Инициализировать angle значением 0
+
+        // Вычислить угол ствола относительно горизонтали
+        angle = Math.atan2(touchPoint.x, centerMinusY);
+
+        // Ствол наводится в точку касания
+        cannon.align(angle);
+
+        // Пушка стреляет, если ядро не находится на экране
+        if (cannon.getCannonball() == null || !cannon.getCannonball().isOnScreen()) {
+            cannon.fireCannonball();
+            ++shotsFired;
+        }
+    }
+
+    // Отображение окна AlertDialog при завершении игры
+    private void showGameOverDialog(final int messageId) {
+        // Объект DialogFragment для вывода статистики и начала новой игры
+        final DialogFragment gameResult = new DialogFragment() {
+            // Метод создает объект AlertDialog и возвращает его
+            @Override
+            public Dialog onCreateDialog(Bundle bundle) {
+                // Создание диалогового окна с выводом строки messageId
+                AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+                builder.setTitle(getResources().getString(messageId));
+
+                // Вывод количества выстрелов и затраченного времени
+                builder.setMessage(getResources().getString(R.string.results_format, shotsFired, totalElapsedTime));
+                builder.setPositiveButton(
+                    R.string.reset_game,
+                    new DialogInterface.OnClickListener() {
+                        // Вызывается при нажатии кнопки "Reset Game"
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialogIsDisplayed = false;
+                            newGame(); // Создание и начало новой партии
+                        }
+                    }
+                ); // end of setPositiveButton()
+
+                return builder.create(); // Вернуть AlertDialog
+            }
+        };
+
+        // В UI-потоке FragmentManager используется для вывода DialogFragment
+        activity.runOnUiThread( // TODO: Проверить, выводится ли апп из режима погружения когда показывается диалог
+            new Runnable() {
+                public void run() {
+                    showSystemBars(); // Выход из режима погружения
+                    dialogIsDisplayed = true;
+                    gameResult.setCancelable(false); // Модальное окно
+                    gameResult.show(activity.getFragmentManager(), "results");
+                }
+            }
+        );
+    }
+
+    // Рисование элементов игры
+    public void drawGameElements(Canvas canvas) { // TODO: Откуда берется Canvas?
+        // Очистка фона
+        canvas.drawRect(0, 0, canvas.getWidth(), canvas.getHeight(), backgroundPaint);
+
+        // Вывод оставшегося времени
+        // TODO: Вычислить математически
+        canvas.drawText(getResources().getString(R.string.time_remaining_format, timeLeft), 50, 100, textPaint); // TODO: Почему точка, где начианет рисоватся текст, прибита?
+
+        cannon.draw(canvas); // Рисование пушки (и ствол, и основание)
+
+        // Рисование игровых элементов
+        if (cannon.getCannonball() != null && cannon.getCannonball().isOnScreen())
+            cannon.getCannonball().draw(canvas);
+
+        blocker.draw(canvas); // Рисование блока
+
+        // Рисование всех мишеней
+        for (GameElement target : targets)
+            target.draw(canvas);
+    }
+
+    // Проверка столкновений с блоком или мишенями и обработка столкновений
+    public void testForCollisions() {
+        // Удаление мишеней, с которыми сталкивается ядро
+        if (cannon.getCannonball() != null && cannon.getCannonball().isOnScreen()) {
+            for (int n = 0; n < targets.size(); n++) {
+                if (cannon.getCannonball().collidesWith(targets.get(n))) {
+                    targets.get(n).playSound(); // Звук попадания в мишень
+
+                    // Прибавление награды к оставшемуся времени
+                    timeLeft += targets.get(n).getHitReward();
+
+                    cannon.removeCannonball(); // Удаление ядра из игры
+                    targets.remove(n); // Удаление пораженной мишени
+                    --n; // Чтобы не пропустить проверку новой мишени
+                    break;
+                }
+            }
+        }else { // Удаление ядра, если оно не должно находиться на экране
+            cannon.removeCannonball();
+        } // end of if
+
+        // Проверка столкновения с блоком
+        if (cannon.getCannonball() != null && cannon.getCannonball().collidesWith(blocker)) {
+            blocker.playSound(); // play Blocker hit sound
+
+            // Изменение направления
+            cannon.getCannonball().reverseVelocityX(); // TODO: Зачем это делать?
+
+            // Уменьшение оставшегося времени на величину штрафа
+            timeLeft -= blocker.getMissPenalty();
+        }
+    }
+
+    // Остановка игры; вызывается методом onPause класса MainActivityFragment
+    public void stopGame() { // TODO: Прогресс тоже сбросиьтся?
+        if (cannonThread != null)
+            cannonThread.setRunning(false); // Приказываем потоку завершиться
+    }
+
+    // Освобождение ресурсов; вызывается методом onDestroy класса CannonGame
+    public void releaseResources() {
+        soundPool.release(); // Освободить все ресурсы, используемые SoundPool
+        soundPool = null;
+    }
+
+
+
+    // Реализация методов SurfaceHolder.Callback
+    // Вызывается при изменении размера поверхности
+    @Override
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
+
+    // Вызывается при создании поверхности - при первой загрузке приложения или при возвращении его из фонового режима.
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
+        if (!dialogIsDisplayed) {
+            newGame(); // Создание новой игры
+
+            cannonThread = new CannonThread(holder); // Создание потока
+            cannonThread.setRunning(true); // Запуск игры
+            cannonThread.start(); // Запуск потока игрового цикла
+        }
+    }
+
+    // Вызывается при уничтожении поверхности - например, при завершении приложения
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        // Обеспечить корректную зависимость потока
+        boolean retry = true;
+        cannonThread.setRunning(false); // Завершение cannonThread
+
+        // TODO: Пройти пошагово
+        while (retry) {
+            try {
+                cannonThread.join(); // Ожидать завершения cannonThread
+                retry = false;
+            }
+            catch (InterruptedException e) {
+                Log.e(TAG, "Thread interrupted", e);
+            }
+        }
+    }
+
+    // Вызывается при касании экрана в этой активности
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        // int представляет тип действия, вызвавшего данное событие (такие как ACTION_DOWN и т.д.)
+        int action = e.getAction();
+
+        // Пользователь коснулся экрана или провел пальцем по экрану
+        // Тут событие обрабатыватся ТОЛЬКО ДЛЯ ОДНОГО пальца
+        if (action == MotionEvent.ACTION_DOWN ||
+                action == MotionEvent.ACTION_MOVE) {
+            // Выстрел в направлении точки касания
+            alignAndFireCannonball(e);
+        }
+
+        return true;
+    }
+
+
+
+    // Субкласс Thread для управления циклом игры
+    private class CannonThread extends Thread {
+        private SurfaceHolder surfaceHolder; // Для работы с Canvas
+        private boolean threadIsRunning = true; // По умолчанию
+
+        // Инициализация SurfaceHolder
+        public CannonThread(SurfaceHolder holder) {
+            surfaceHolder = holder; // TODO: Зачем ужен холдер?
+            setName("CannonThread");
+        }
+
+        // Изменение состояния выполнения
+        public void setRunning(boolean running) {
+            threadIsRunning = running;
+        }
+
+        // Управление игровым циклом (покадровыми аимациями)
+        // Каждое обновление элементов игры на экране выполняется с учетом количества миллисекунд, прошедших с момента последнего обновления
+        @Override
+        public void run() {
+            Canvas canvas = null; // Используется для рисования
+            long previousFrameTime = System.currentTimeMillis();
+
+            while (threadIsRunning) {
+                try {
+                    // Получение Canvas для монопольного рисования из этого потока
+                    canvas = surfaceHolder.lockCanvas(null); // TODO: Почему бы не юзать lockCanvas() без аргов?
+
+                    // Блокировка surfaceHolder для рисования
+                    synchronized(surfaceHolder) { // TODO: Что такое synchronized с точки зрения языка?
+                        long currentTime = System.currentTimeMillis();
+                        double elapsedTimeMS = currentTime - previousFrameTime;
+                        totalElapsedTime += elapsedTimeMS / 1000.0;
+                        updatePositions(elapsedTimeMS); // Обновление состояния игры
+                        testForCollisions(); // Проверка столкновений с GameElement
+                        drawGameElements(canvas); // Рисование на объекте canvas
+                        previousFrameTime = currentTime; // Обновление времени
+                    }
+                }
+                finally { // Ключевое слово finally создаёт блок кода, который будет выполнен после завершения блока try/catch, но перед кодом, следующим за ним
+                    if (canvas != null) // Вывести содержимое canvas на CannonView и разрешить использовать Canvas другим потокам
+                        surfaceHolder.unlockCanvasAndPost(canvas); // TODO: Что будет, если передать внутрь канват отличный от lockCanvas()?
+                }
+            }
+        }
+    }
+
+    // Режим погружения доступен только на устройствах с Android 4.4 и выше
+    // Сокрытие системных панелей и панели приложения
+    private void hideSystemBars() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+            setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_FULLSCREEN |
+                View.SYSTEM_UI_FLAG_IMMERSIVE);
+    }
+
+    // Вывести системные панели и панель приложения
+    private void showSystemBars() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+            setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | // TODO: Зачем тут побитовое ИЛИ?
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+                /*  С этими константами View приложение не будет изменяться в размерах при
+                    каждом сокрытии и появлении системных панелей и панели приложения.
+                    Вместо этого системные панели и панель приложения будут накладываться на CannonView
+                 */ // TODO: Проверить
     }
 }
