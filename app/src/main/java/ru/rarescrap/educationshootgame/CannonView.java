@@ -25,6 +25,8 @@ import android.view.View;
 import java.util.ArrayList;
 import java.util.Random;
 
+import static android.media.AudioManager.STREAM_MUSIC; // Для выбора потока звука в API 19
+
 public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
     private static final String TAG = "CannonView"; // Для регистрации ошибок
 
@@ -98,9 +100,9 @@ public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
         // Регистрация слушателя SurfaceHolder.Callback
         getHolder().addCallback(this);
 
-        // Настройка атрибутов для воспроизведения звука
-
+        // Настройка атрибутов для воспроизведения звука с учетом версий
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            // Настройка атрибутов для воспроизведения звука
             AudioAttributes.Builder attrBuilder = null;
             attrBuilder = new AudioAttributes.Builder();
             attrBuilder.setUsage(AudioAttributes.USAGE_GAME);
@@ -110,7 +112,11 @@ public class CannonView extends SurfaceView implements SurfaceHolder.Callback {
             builder.setMaxStreams(1);
             builder.setAudioAttributes(attrBuilder.build()); // Связыванеие атрибутов с soundPool
             soundPool = builder.build();
+        }else {
+            soundPool = new SoundPool(1, STREAM_MUSIC, 0);
         }
+
+
 
         // Создание Map и предварительная загрузка звуков
         soundMap = new SparseIntArray(3); // Создание SparseIntArray (как HashMap, о более эфективный для небльшого количство пар)
